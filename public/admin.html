@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NagarCraft | Administrator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="admin-page">
+  <header class="topbar"><a class="brand" href="/"><span class="brand-mark">N</span><span>Nagar<span>Craft</span></span></a><div class="topbar-copy">Event control room</div><a class="admin-link" href="/">← Team workspace</a></header>
+  <main class="admin-main">
+    <section class="admin-login" id="adminLogin">
+      <p class="eyebrow">Restricted access</p><h1>Administrator<br><em>dashboard.</em></h1><p class="muted">Review team submissions and the city resilience leaderboard.</p>
+      <form id="adminForm" class="admin-auth-card">
+        <label class="field">Email address<input id="adminEmail" type="email" autocomplete="username" placeholder="admin@citysim.local" required></label>
+        <label class="field">Password<input id="adminPassword" type="password" autocomplete="current-password" placeholder="Your administrator password" required></label>
+        <p class="form-error" id="adminError" role="alert"></p><button class="primary-btn full" type="submit">Open control room</button>
+      </form>
+    </section>
+    <section class="admin-dashboard hidden" id="adminDashboard">
+      <div class="admin-title-row"><div><p class="eyebrow">Live event results</p><h1>City challenge <em>control room.</em></h1></div><button class="quiet-btn" id="refreshScores" type="button">↻ Refresh data</button></div>
+      <div class="admin-stats"><div><span id="registeredCount">0</span><small>registered teams</small></div><div><span id="completedCount">0</span><small>final submissions</small></div><div><span id="averageScore">0</span><small>average score</small></div></div>
+      <div class="leaderboard-shell"><div class="leaderboard-head"><h2>Leaderboard</h2><span>Scores are final after simulation</span></div><div class="table-wrap"><table><thead><tr><th>Rank</th><th>Team</th><th>Leader</th><th>Population</th><th>Budget used</th><th>Event score</th><th>Final score</th><th>Status</th></tr></thead><tbody id="scoreRows"></tbody></table></div></div>
+      <section class="event-review" id="eventReview"><p>Select a submitted team to inspect its event results.</p></section>
+    </section>
+  </main>
+  <script src="admin.js"></script>
+</body>
+</html>
