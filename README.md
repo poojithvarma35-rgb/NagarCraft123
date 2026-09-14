@@ -48,7 +48,7 @@ The organizer must check real-world team identities when issuing codes. Codes st
 
 ## Building and saving
 
-- Budget remains ₹100 Cr. The reduced building prices are shown in the palette. Roads cost ₹1 Cr per 200 map metres, rounded only on the total bill. Overlapping roads still cost money but add no capacity.
+- Budget remains ₹100 Cr. Construction tools now use lakh-scale prices: each building costs ₹1–₹5 lakh, and roads cost ₹1 lakh per 200 map metres. Internally, costs remain represented in crores for compatibility with the budget and API. Overlapping roads still cost money but add no capacity.
 - Click a start and end point to draw a road. Exact crossings and T junctions connect automatically. Roads snap to existing road interiors. A road crossing the river acts as a bridge. Buildings must be on land, 34 metres apart, and within 42 metres of a road for service access.
 - **Move building** selects a building, then a new position. **Remove item** refunds its cost. **Undo** works within the current editing session. **Pan map**, zoom and **Fit city** change only the view. **Floodplain** shows the risk zone used by the simulation.
 - Keyboard: focus the map, use arrows to position the cursor, Enter to place, and Escape to cancel the active road or move. While drawing a road, click **Draw road** again or left-click outside the map to cancel the red dotted preview; the second click inside the map still finishes the road.
@@ -85,4 +85,3 @@ Run one Node process against a data directory. The event store remains lightweig
 ## Verification
 
 Run `npm test`. Tests use isolated temporary stores under `work/`; they do not change event registrations or scores. Coverage includes road topology, disconnected facilities, capacity overload, segmentation/overlap fairness, flood location, validation, code reuse, competing saves/submissions, authorization and corrupted-storage protection.
-
