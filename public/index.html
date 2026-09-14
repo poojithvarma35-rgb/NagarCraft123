@@ -12,6 +12,7 @@
 </head>
 <body>
   <header class="topbar">
+    <a class="back-home hidden" id="backHome" href="/?home=1" aria-label="Back to home">← Home</a>
     <a class="brand" href="/" aria-label="NagarCraft home"><span class="brand-mark">N</span><span>Nagar<span>Craft</span></span></a>
     <div class="topbar-copy"><span class="live-dot"></span> City resilience challenge</div>
     <a class="admin-link" href="/admin.html">Administrator dashboard →</a>
@@ -34,6 +35,7 @@
         <h2 id="authTitle">Create your team</h2>
         <p class="muted" id="authDescription">Registration reserves one final simulation for your team.</p>
         <form id="authForm" novalidate>
+          <label class="field register-only">4-digit organizer code<input id="registrationCode" name="registrationCode" autocomplete="off" inputmode="numeric" pattern="[0-9]{4}" placeholder="e.g. 4821" maxlength="4" minlength="4"></label>
           <label class="field register-only">Team name<input id="teamName" name="teamName" autocomplete="organization" placeholder="e.g. Urban Makers" maxlength="80"></label>
           <label class="field register-only">Team leader<input id="leaderName" name="leaderName" autocomplete="name" placeholder="Your full name" maxlength="80"></label>
           <label class="field">Email address<input id="email" name="email" type="email" autocomplete="email" placeholder="team@example.com" maxlength="120" required></label>
@@ -42,6 +44,7 @@
           <button class="primary-btn full" id="authSubmit" type="submit">Create team &amp; start building</button>
         </form>
         <button class="text-btn" id="authMode" type="button">Already registered? Sign in</button>
+        <button class="text-btn return-plan hidden" id="returnToPlan" type="button">← Return to your city plan</button>
       </div>
     </section>
 
@@ -58,7 +61,7 @@
         </div>
         <div class="tool-heading"><span>Construction tools</span><button id="undoButton" type="button" title="Undo latest item">↶ Undo</button></div>
         <div class="tool-list" id="toolList" aria-label="Construction tools"></div>
-        <div class="panel-note"><span>●</span> Roads snap to nearby endpoints and infrastructure. Place services near roads for better accessibility.</div>
+        <div class="panel-note"><span>●</span> Roads cost ₹1 Cr per 200 m. Click twice to draw. Crossings form junctions; river crossings act as bridges. Buildings need road access within 42 m.</div>
       </aside>
 
       <section class="map-workspace">
@@ -66,8 +69,16 @@
           <div><p class="eyebrow">Live city plan</p><h2 id="mapInstruction">Choose a tool to begin building</h2></div>
           <div class="map-actions"><button id="clearButton" class="quiet-btn" type="button">Clear plan</button><button id="saveButton" class="quiet-btn" type="button">Save now</button></div>
         </div>
+        <div class="city-locked-notice hidden" id="cityLockedNotice" role="status"><strong>This city is locked.</strong> Your team has already used its one final simulation run. Use Home to register or sign in with another team.</div>
+        <div class="map-edit-tools" aria-label="Map controls">
+          <button id="tool-move" type="button" aria-pressed="false">Move building</button>
+          <button id="tool-delete" type="button" aria-pressed="false">Remove item</button>
+          <button id="tool-pan" type="button" aria-pressed="false">Pan map</button>
+          <button id="zoomIn" type="button" aria-label="Zoom in">+</button><span id="zoomValue">100%</span><button id="zoomOut" type="button" aria-label="Zoom out">−</button><button id="zoomFit" type="button">Fit city</button>
+          <label><input id="floodLayerToggle" type="checkbox"> Floodplain</label>
+        </div>
         <div class="map-frame">
-          <svg id="cityMap" viewBox="0 0 1000 650" role="img" aria-label="Map of the team's city plan. Click to construct the selected item." preserveAspectRatio="xMidYMid meet">
+          <svg id="cityMap" viewBox="0 0 1000 650" role="application" tabindex="0" aria-label="City map. Select a tool, then click to build. Keyboard: arrows move the cursor, Enter places, Escape cancels." preserveAspectRatio="xMidYMid meet">
             <defs>
               <linearGradient id="land" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#dce8bd"/><stop offset=".55" stop-color="#c8dca4"/><stop offset="1" stop-color="#b6d195"/></linearGradient>
               <linearGradient id="river" x1="0" x2="1"><stop stop-color="#9dd9df"/><stop offset="1" stop-color="#6dbac8"/></linearGradient>
@@ -77,32 +88,38 @@
             <rect width="1000" height="650" fill="url(#land)"/>
             <path d="M-20 85 C140 20 208 130 345 89 S545 25 698 93 S907 161 1030 90 L1030 -20 L-20 -20Z" fill="#c0d89e" opacity=".58"/>
             <path d="M-20 520 C160 440 242 552 414 505 S677 422 820 504 S945 578 1030 510 L1030 670 L-20 670Z" fill="url(#fieldRows)" opacity=".72"/>
-            <path d="M-30 363 C105 286 176 396 296 352 S509 250 647 353 S850 417 1030 334 L1030 454 C843 535 774 464 646 427 S422 380 288 441 S90 394 -30 463Z" fill="url(#river)" opacity=".86"/>
-            <path d="M-30 363 C105 286 176 396 296 352 S509 250 647 353 S850 417 1030 334" fill="none" stroke="#d7f4f2" stroke-width="8" opacity=".6"/>
+            <path id="floodplainShape" class="hidden" fill="#e9b950" opacity=".25"/>
+            <path id="riverShape" fill="url(#river)" opacity=".86"/>
             <g opacity=".3" fill="none" stroke="#76986f" stroke-width="1.5"><path d="M40 120 Q165 85 258 145 T477 132"/><path d="M535 182 Q653 134 756 196 T972 166"/><path d="M64 559 Q193 500 310 560 T520 550"/><path d="M700 574 Q826 504 968 555"/></g>
             <g id="roadLayer"></g>
             <g id="previewLayer"></g>
             <g id="buildingLayer"></g>
+            <g id="eventLayer"></g>
             <g id="mapEmptyState" class="map-empty-state"><circle cx="500" cy="315" r="56"/><path d="M480 315h40M500 295v40"/><text x="500" y="400">Your blank city is ready</text><text x="500" y="426">Start by drawing a road or placing infrastructure</text></g>
           </svg>
           <div class="map-key"><span><i class="road-key"></i> Road network</span><span><i class="water-key"></i> River / flood zone</span><span><i class="building-key"></i> Infrastructure</span></div>
         </div>
+        <p id="placementHelp" class="map-footnote">Keyboard: focus the map, use arrows to position the cursor, Enter to place and Escape to cancel.</p>
         <div class="map-footnote" id="saveStatus" aria-live="polite">Plan is saved automatically while you build.</div>
+        <div class="save-actions"><button id="retrySave" class="quiet-btn hidden">Retry save</button><button id="resumeLogin" class="quiet-btn hidden">Sign in to save</button></div>
+        <div id="conflictActions" class="save-actions hidden"><button id="useServerDraft" class="quiet-btn">Load server city</button><button id="useLocalDraft" class="quiet-btn">Keep this draft and replace server city</button></div>
       </section>
 
       <aside class="right-panel">
         <div class="metric-header"><p class="eyebrow">Engineering dashboard</p><span id="planStatus" class="status-pill">PLANNING</span></div>
-        <div class="score-dial"><div><span id="scorePreview">0</span><small>projected score</small></div></div>
+        <div class="score-dial hidden"><div><span id="scorePreview"></span><small>final score</small></div></div>
         <div class="metric-list">
           <div class="metric"><div><span class="metric-icon">👥</span><span>Population</span></div><strong id="populationValue">0</strong></div>
           <div class="metric"><div><span class="metric-icon">↗</span><span>Road access</span></div><strong id="accessValue">0%</strong></div>
-          <div class="metric"><div><span class="metric-icon">🚗</span><span>Mobility</span></div><strong id="mobilityValue">0</strong></div>
-          <div class="metric"><div><span class="metric-icon">🛡</span><span>Resilience</span></div><strong id="resilienceValue">0</strong></div>
-          <div class="metric"><div><span class="metric-icon">🚑</span><span>Emergency response</span></div><strong id="emergencyValue">0</strong></div>
+          <div class="metric"><div><span class="metric-icon">🚗</span><span>Commuter access</span></div><strong id="mobilityValue">0%</strong></div>
+          <div class="metric"><div><span class="metric-icon">🛡</span><span>Utility coverage</span></div><strong id="resilienceValue">0%</strong></div>
+          <div class="metric"><div><span class="metric-icon">🚑</span><span>Emergency coverage</span></div><strong id="emergencyValue">0%</strong></div>
         </div>
         <div class="build-summary"><p>City mix</p><div class="mix-row"><span>Roads <b id="roadCount">0</b></span><span>Assets <b id="assetCount">0</b></span></div></div>
+        <details class="planning-details" open><summary>Service warnings</summary><ul id="planningWarnings" aria-live="polite"></ul></details>
+        <details class="planning-details"><summary>Capacity &amp; demand</summary><p>Capacity is shared across reachable buildings. Each residential area adds 9,000 demand units; businesses add demand too.</p><div id="capacityRows"></div></details>
         <button class="run-btn" id="runButton" type="button">RUN CITY SIMULATION <span>→</span></button>
-        <p class="final-run-note">Final action. Your team receives only one submitted simulation run.</p>
+        <p class="final-run-note">Build 2 roads, 5 assets and 1 residential area. Your team receives one final simulation. Scores appear after submission.</p>
       </aside>
     </section>
   </main>
@@ -114,6 +131,8 @@
     </div>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="engine.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
+

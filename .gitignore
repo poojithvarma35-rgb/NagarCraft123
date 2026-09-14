@@ -1,4 +1,8 @@
 node_modules/
 .npm-cache/
 data/city-sim.json
+data/*.bak
+data/*.tmp
+work/
 .env
+

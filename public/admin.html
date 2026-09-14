@@ -22,11 +22,15 @@
     </section>
     <section class="admin-dashboard hidden" id="adminDashboard">
       <div class="admin-title-row"><div><p class="eyebrow">Live event results</p><h1>City challenge <em>control room.</em></h1></div><button class="quiet-btn" id="refreshScores" type="button">↻ Refresh data</button></div>
-      <div class="admin-stats"><div><span id="registeredCount">0</span><small>registered teams</small></div><div><span id="completedCount">0</span><small>final submissions</small></div><div><span id="averageScore">0</span><small>average score</small></div></div>
-      <div class="leaderboard-shell"><div class="leaderboard-head"><h2>Leaderboard</h2><span>Scores are final after simulation</span></div><div class="table-wrap"><table><thead><tr><th>Rank</th><th>Team</th><th>Leader</th><th>Population</th><th>Budget used</th><th>Event score</th><th>Final score</th><th>Status</th></tr></thead><tbody id="scoreRows"></tbody></table></div></div>
+      <div class="admin-stats"><div><span id="registeredCount">0</span><small>registered teams</small></div><div><span id="completedCount">0</span><small>final submissions</small></div><div><span id="averageScore">0</span><small>average · current rules</small></div></div>
+      <p id="adminNotice" role="status" aria-live="polite"></p>
+      <section class="code-panel" aria-labelledby="codesTitle"><h2 id="codesTitle">Team registration codes</h2><p class="rules-note">Issue one simple 4-digit code per approved team. A code is bound to its team name and can be used once. Deleting a team does not release its used code. Existing teams can still sign in.</p><form id="codeForm" class="code-form"><label class="field">Approved team name<input id="codeTeamName" maxlength="80" minlength="2" required placeholder="e.g. Urban Makers"></label><button class="primary-btn" type="submit">Issue 4-digit code</button></form><p id="codeNotice" role="status" aria-live="polite"></p><div id="codeList" class="code-list"></div></section>
+      <p class="rules-note">Rules 2.0: routes, capacity and location determine results. Older submissions are labeled “Legacy” and are excluded from current rankings and the average.</p>
+      <div class="leaderboard-shell"><div class="leaderboard-head"><h2>Leaderboard</h2><span>Scores are final after simulation</span></div><div class="table-wrap"><table><thead><tr><th>Rank</th><th>Team</th><th>Leader</th><th>Population</th><th>Budget used</th><th>Event score</th><th>Final score</th><th>Status</th><th>Actions</th></tr></thead><tbody id="scoreRows"></tbody></table></div></div>
       <section class="event-review" id="eventReview"><p>Select a submitted team to inspect its event results.</p></section>
     </section>
   </main>
   <script src="admin.js"></script>
 </body>
 </html>
+

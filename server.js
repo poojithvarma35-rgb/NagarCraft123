@@ -1,243 +1,116 @@
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+const crypto = require('node:crypto');
+const path = require('node:path');
 const express = require('express');
+const Engine = require('./public/engine');
+const { createStore } = require('./storage');
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-const DATA_DIR = path.join(__dirname, 'data');
-const DATA_FILE = path.join(DATA_DIR, 'city-sim.json');
-const SESSION_TTL = 1000 * 60 * 60 * 8;
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@citysim.local';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
-
-const BUILDINGS = {
-  residential: { label: 'Residential area', icon: '⌂', cost: 6, population: 9000, color: '#e66d65' },
-  commercial: { label: 'Commercial area', icon: '▥', cost: 8, population: 1200, color: '#f1a24b' },
-  industrial: { label: 'Industrial area', icon: '⚙', cost: 12, population: 400, color: '#8774d8' },
-  hospital: { label: 'Hospital', icon: '✚', cost: 12, color: '#d94f5c' },
-  school: { label: 'School / college', icon: '▣', cost: 8, color: '#4e8edb' },
-  fire: { label: 'Fire station', icon: '♨', cost: 7, color: '#ef6e56' },
-  park: { label: 'Park', icon: '♣', cost: 4, color: '#50a96e' },
-  water: { label: 'Water plant', icon: '◉', cost: 14, color: '#3189b9' },
-  power: { label: 'Power plant', icon: 'ϟ', cost: 16, color: '#e5b83b' },
-  bus: { label: 'Bus depot', icon: '▰', cost: 6, color: '#e48e3f' },
-  waste: { label: 'Waste facility', icon: '♻', cost: 10, color: '#699a5d' },
-  drainage: { label: 'Drainage network', icon: '≈', cost: 9, color: '#498fc0' },
-  sensor: { label: 'Smart sensor', icon: '◌', cost: 2, color: '#6d91aa' },
-  solar: { label: 'Solar field', icon: '☀', cost: 8, color: '#d7a831' },
-  hotel: { label: 'Hotel', icon: 'H', cost: 5, color: '#b3779a' },
-  restaurant: { label: 'Restaurant', icon: 'R', cost: 3, color: '#b97145' }
-};
-const ROAD_COST = 2;
-
-function initialDb() {
-  return { teams: [], sessions: [] };
-}
-function readDb() {
-  try {
-    if (!fs.existsSync(DATA_FILE)) return initialDb();
-    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    return { teams: Array.isArray(parsed.teams) ? parsed.teams : [], sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [] };
-  } catch (error) {
-    console.error('Could not read data store:', error.message);
-    return initialDb();
-  }
-}
-function writeDb(db) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2), 'utf8');
-}
-function cleanText(value, max = 80) {
-  return String(value || '').trim().replace(/[<>]/g, '').slice(0, max);
-}
-function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
-  const hash = crypto.scryptSync(String(password), salt, 64).toString('hex');
-  return `${salt}:${hash}`;
-}
-function checkPassword(password, stored) {
-  const [salt, hash] = String(stored || '').split(':');
-  if (!salt || !hash) return false;
-  const test = crypto.scryptSync(String(password), salt, 64).toString('hex');
-  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(test, 'hex'));
-}
-function tokenFor(db, kind, subjectId) {
-  db.sessions = db.sessions.filter((s) => s.expiresAt > Date.now());
-  const token = crypto.randomBytes(32).toString('hex');
-  db.sessions.push({ token, kind, subjectId, expiresAt: Date.now() + SESSION_TTL });
-  writeDb(db);
-  return token;
-}
-function auth(kind) {
-  return (req, res, next) => {
-    const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-    const db = readDb();
-    const session = db.sessions.find((s) => s.token === token && s.kind === kind && s.expiresAt > Date.now());
-    if (!session) return res.status(401).json({ error: 'Your session has ended. Please sign in again.' });
-    req.db = db;
-    req.session = session;
-    next();
+function createApp(options={}) {
+  const app=express();
+  const store=options.store || createStore(options.dataDir || process.env.DATA_DIR || path.join(__dirname,'data'));
+  const adminEmail=options.adminEmail || process.env.ADMIN_EMAIL || 'admin@citysim.local';
+  const adminPassword=options.adminPassword || process.env.ADMIN_PASSWORD || 'admin123';
+  const ttl=8*60*60*1000;
+  const clean=(value,max=80)=>String(value || '').trim().replace(/[<>]/g,'').slice(0,max);
+  const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
+  const fourDigitCode=(codes)=> {
+    for(let attempt=0;attempt<100;attempt++) {
+      const code=String(1000+crypto.randomInt(9000));
+      if(!codes.some(entry=>entry.code===code))return code;
+    }
+    fail(503,'No unused four-digit registration codes are available.');
   };
-}
-function validPoint(point) {
-  return point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)) && Number(point.x) >= 0 && Number(point.x) <= 1000 && Number(point.y) >= 0 && Number(point.y) <= 650;
-}
-function normalizeCity(input) {
-  const city = input && typeof input === 'object' ? input : {};
-  const roads = Array.isArray(city.roads) ? city.roads.slice(0, 80) : [];
-  const buildings = Array.isArray(city.buildings) ? city.buildings.slice(0, 80) : [];
-  const safeRoads = roads.map((road, index) => ({
-    id: cleanText(road.id, 40) || `road-${index}`,
-    start: { x: Math.round(Number(road.start && road.start.x)), y: Math.round(Number(road.start && road.start.y)) },
-    end: { x: Math.round(Number(road.end && road.end.x)), y: Math.round(Number(road.end && road.end.y)) }
-  })).filter((road) => validPoint(road.start) && validPoint(road.end) && (road.start.x !== road.end.x || road.start.y !== road.end.y));
-  const safeBuildings = buildings.map((building, index) => ({
-    id: cleanText(building.id, 40) || `building-${index}`,
-    type: cleanText(building.type, 30),
-    x: Math.round(Number(building.x)),
-    y: Math.round(Number(building.y))
-  })).filter((building) => BUILDINGS[building.type] && validPoint(building));
-  return { roads: safeRoads, buildings: safeBuildings };
-}
-function distToSegment(point, start, end) {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  if (dx === 0 && dy === 0) return Math.hypot(point.x - start.x, point.y - start.y);
-  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)));
-  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
-}
-function nearbyRoad(point, roads) {
-  return roads.some((road) => distToSegment(point, road.start, road.end) <= 42);
-}
-function connectedRoadCount(roads) {
-  if (roads.length < 2) return roads.length;
-  let connected = 0;
-  for (let i = 0; i < roads.length; i += 1) {
-    const candidate = roads[i];
-    const endpoints = [candidate.start, candidate.end];
-    if (roads.some((other, j) => j !== i && endpoints.some((p) => [other.start, other.end].some((q) => Math.hypot(p.x - q.x, p.y - q.y) < 55)))) connected += 1;
+  const hash=(password,salt=crypto.randomBytes(16).toString('hex'))=>salt+':'+crypto.scryptSync(password,salt,64).toString('hex');
+  const verify=(password,stored)=>{const [salt,key]=String(stored || '').split(':');if(!salt || !/^[a-f0-9]{128}$/i.test(key))return false;return crypto.timingSafeEqual(Buffer.from(key,'hex'),crypto.scryptSync(password,salt,64));};
+  const publicTeam=t=>({id:t.id,teamName:t.teamName,leaderName:t.leaderName,email:t.email,completed:!!t.completed,city:t.city || {roads:[],buildings:[]},result:t.result || null,revision:t.revision || 0,createdAt:t.createdAt});
+  function tokenFor(db,kind,subjectId) {
+    db.sessions=db.sessions.filter(s=>s.expiresAt>Date.now());
+    const token=crypto.randomBytes(32).toString('hex');
+    db.sessions.push({token,kind,subjectId,expiresAt:Date.now()+ttl});return token;
   }
-  return connected;
+  function auth(kind) {return (req,res,next)=> {
+    const token=String(req.headers.authorization || '').replace(/^Bearer\s+/i,'');
+    const db=store.read(),session=db.sessions.find(s=>s.token===token && s.kind===kind && s.expiresAt>Date.now());
+    if(!session)return res.status(401).json({error:'Your session has ended. Please sign in again.'});
+    req.db=db;req.session=session;next();
+  };}
+  function teamFor(req) {const t=req.db.teams.find(t=>t.id===req.session.subjectId);if(!t)fail(404,'This team no longer exists.');return t;}
+  function revision(req,team) {if(req.body.revision!==(team.revision || 0))fail(409,'This city changed in another tab. Your local edits are kept. Reload the saved city or explicitly replace it with this draft.');}
+  function audit(db,action,id) {db.audit.push({action,id,at:new Date().toISOString()});db.audit=db.audit.slice(-500);}
+  app.use(express.json({limit:'250kb'}));
+  app.use('/api',(req,res,next)=> {res.set('Cache-Control','no-store');next();});
+  const attempts=new Map();
+  app.use('/api/auth',(req,res,next)=> {
+    const key=req.ip,now=Date.now();
+    if(attempts.size>1000)for(const [k,v] of attempts)if(v.until<now)attempts.delete(k);
+    const entry=attempts.get(key);if(!entry || entry.until<now)attempts.set(key,{count:1,until:now+60000});
+    else if(++entry.count>60)return res.status(429).json({error:'Too many sign-in attempts. Wait one minute.'});
+    next();
+  });
+  app.use(express.static(path.join(__dirname,'public'),{maxAge:0}));
+  app.get('/health',(req,res)=>res.json({ok:true,version:Engine.VERSION}));
+  app.get('/api/config',(req,res)=>res.json({version:Engine.VERSION,registrationCodeRequired:true,registrationCodeFormat:'4-digit',catalog:Engine.catalog,roadUnit:Engine.ROAD_UNIT,budget:Engine.BUDGET}));
+  app.post('/api/auth/team/register',(req,res)=> {
+    const teamName=clean(req.body.teamName),leaderName=clean(req.body.leaderName),email=clean(req.body.email,120).toLowerCase(),password=String(req.body.password || '');
+    if(teamName.length<2 || leaderName.length<2 || !/^\S+@\S+\.\S+$/.test(email) || password.length<6 || password.length>128)fail(400,'Enter team and leader names, a valid email, and a password of 6–128 characters.');
+    const db=store.read();
+    const registrationCode=String(req.body.registrationCode || '').trim();
+    if(!/^\d{4}$/.test(registrationCode))fail(400,'Enter the four-digit registration code issued by your organizer.');
+    const entry=db.codes.find(c=>c.code===registrationCode);
+    if(!entry || entry.usedBy || entry.revoked)fail(400,'Enter an unused registration code issued by your organizer.');
+    if(entry.teamName.toLowerCase()!==teamName.toLowerCase())fail(400,'Use the team name assigned to this code: '+entry.teamName);
+    if(db.teams.some(t=>t.email===email || t.teamName.toLowerCase()===teamName.toLowerCase()))fail(409,'That team name or email has already been registered. Sign in instead.');
+    const team={id:crypto.randomUUID(),teamName:entry.teamName,leaderName,email,passwordHash:hash(password),completed:false,city:{roads:[],buildings:[]},result:null,revision:0,createdAt:new Date().toISOString(),codeId:entry.id};
+    entry.usedBy=team.id;entry.usedAt=new Date().toISOString();db.teams.push(team);
+    const token=tokenFor(db,'team',team.id);store.write(db);res.status(201).json({token,team:publicTeam(team)});
+  });
+  app.post('/api/auth/team/login',(req,res)=> {
+    const db=store.read(),email=clean(req.body.email,120).toLowerCase(),password=String(req.body.password || '');
+    const t=db.teams.find(t=>t.email===email);
+    if(password.length>128 || !t || !verify(password,t.passwordHash))fail(401,'Incorrect email or password.');
+    const token=tokenFor(db,'team',t.id);store.write(db);res.json({token,team:publicTeam(t)});
+  });
+  app.post('/api/auth/admin/login',(req,res)=> {
+    if(clean(req.body.email,120).toLowerCase()!==adminEmail.toLowerCase() || req.body.password!==adminPassword)fail(401,'Incorrect administrator credentials.');
+    const db=store.read(),token=tokenFor(db,'admin','administrator');store.write(db);res.json({token,admin:{email:adminEmail}});
+  });
+  app.post('/api/auth/logout',(req,res)=> {const token=String(req.headers.authorization || '').replace(/^Bearer\s+/i,'');const db=store.read();db.sessions=db.sessions.filter(s=>s.token!==token);store.write(db);res.json({ok:true});});
+  app.get('/api/team/me',auth('team'),(req,res)=>res.json({team:publicTeam(teamFor(req)),catalog:Engine.catalog,roadUnit:Engine.ROAD_UNIT}));
+  app.put('/api/team/city',auth('team'),(req,res)=> {
+    const t=teamFor(req);if(t.completed)fail(403,'This city is locked after its final simulation.');revision(req,t);
+    const city=Engine.validateCity(req.body.city);t.city=city;t.revision=(t.revision || 0)+1;store.write(req.db);
+    res.json({team:publicTeam(t),metrics:Engine.analyze(city)});
+  });
+  app.post('/api/team/simulate',auth('team'),(req,res)=> {
+    const t=teamFor(req);
+    if(t.completed)return res.json({team:publicTeam(t),result:t.result});
+    revision(req,t);const city=Engine.validateCity(req.body.city);
+    if(city.roads.length<2 || city.buildings.length<5 || !city.buildings.some(b=>b.type==='residential'))fail(400,'Build at least 2 roads, 5 assets and 1 residential area before submitting.');
+    const result=Engine.analyze(city,true);t.city=city;t.result=result;t.completed=true;t.completedAt=new Date().toISOString();t.revision=(t.revision || 0)+1;audit(req.db,'submit',t.id);store.write(req.db);res.json({team:publicTeam(t),result});
+  });
+  app.get('/api/admin/codes',auth('admin'),(req,res)=>res.json({codes:req.db.codes}));
+  app.post('/api/admin/codes',auth('admin'),(req,res)=> {
+    const teamName=clean(req.body.teamName);if(teamName.length<2)fail(400,'Enter the approved team name.');
+    if(req.db.codes.some(c=>!c.revoked && c.teamName.toLowerCase()===teamName.toLowerCase()) || req.db.teams.some(t=>t.teamName.toLowerCase()===teamName.toLowerCase()))fail(409,'This team already has a registration or an active/used code.');
+    const entry={id:crypto.randomUUID(),teamName,code:fourDigitCode(req.db.codes),createdAt:new Date().toISOString(),usedBy:null,revoked:false};req.db.codes.push(entry);audit(req.db,'issue-code',entry.id);store.write(req.db);res.status(201).json({code:entry});
+  });
+  app.post('/api/admin/codes/:id/revoke',auth('admin'),(req,res)=> {
+    const c=req.db.codes.find(c=>c.id===req.params.id);if(!c)fail(404,'Code not found.');if(c.usedBy)fail(409,'A used code remains consumed permanently.');c.revoked=true;audit(req.db,'revoke-code',c.id);store.write(req.db);res.json({ok:true});
+  });
+  app.delete('/api/admin/teams/:id',auth('admin'),(req,res)=> {
+    const t=req.db.teams.find(t=>t.id===req.params.id);if(!t)fail(404,'Team not found. Refresh the leaderboard.');
+    req.db.teams=req.db.teams.filter(t=>t.id!==req.params.id);req.db.sessions=req.db.sessions.filter(s=>!(s.kind==='team' && s.subjectId===t.id));
+    audit(req.db,'delete-team',t.id);store.write(req.db);res.json({deletedTeamId:t.id});
+  });
+  app.get('/api/admin/scores',auth('admin'),(req,res)=> {
+    const teams=req.db.teams.map(t=>({id:t.id,teamName:t.teamName,leaderName:t.leaderName,email:t.email,completed:!!t.completed,score:t.result?.score ?? null,budgetUsed:t.result?.totalCost ?? Engine.cost(t.city),population:t.result?.population ?? Engine.analyze(t.city).population,completedAt:t.completedAt || null,eventAverage:t.result?.eventAverage ?? null,result:t.result || null,version:t.result ? t.result.version || '1.0' : Engine.VERSION})).sort((a,b)=>(b.score ?? -1)-(a.score ?? -1));
+    const current=teams.filter(t=>t.completed && t.version===Engine.VERSION);
+    res.json({teams,version:Engine.VERSION,summary:{registered:teams.length,completed:teams.filter(t=>t.completed).length,averageScore:current.length?Math.round(current.reduce((s,t)=>s+t.score,0)/current.length):0}});
+  });
+  app.use('/api',(req,res)=>res.status(404).json({error:'API route not found. Restart the event server if it was just updated.'}));
+  app.get('/',(req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+  app.use((error,req,res,next)=> {console.error(error.message);res.status(error.status || 500).json({error:error.status ? error.message : 'The server could not complete this request. Your local draft has been kept.'});});
+  return app;
 }
-function count(city, type) { return city.buildings.filter((b) => b.type === type).length; }
-function cityMetrics(input) {
-  const city = normalizeCity(input);
-  const totalCost = city.roads.length * ROAD_COST + city.buildings.reduce((sum, item) => sum + BUILDINGS[item.type].cost, 0);
-  const budget = Math.max(0, 100 - totalCost);
-  const population = city.buildings.reduce((sum, item) => sum + (BUILDINGS[item.type].population || 0), 0);
-  const roadLinked = city.buildings.filter((item) => nearbyRoad(item, city.roads)).length;
-  const access = city.buildings.length ? Math.round((roadLinked / city.buildings.length) * 100) : 0;
-  const junctions = connectedRoadCount(city.roads);
-  const roadScore = Math.min(100, Math.round(city.roads.length * 11 + junctions * 7 + (count(city, 'bus') * 10)));
-  const emergencyAssets = count(city, 'hospital') + count(city, 'fire');
-  const emergency = Math.min(100, Math.round((emergencyAssets * 32 + access * 0.42 + Math.min(city.roads.length * 4, 24))));
-  const utilities = ['water', 'power', 'drainage', 'waste'];
-  const utilityCoverage = utilities.filter((type) => count(city, type) > 0).length / utilities.length;
-  const resilience = Math.min(100, Math.round(utilityCoverage * 60 + count(city, 'sensor') * 7 + count(city, 'park') * 6 + count(city, 'solar') * 8));
-  const housing = count(city, 'residential');
-  const jobs = count(city, 'commercial') + count(city, 'industrial');
-  const planning = Math.min(100, Math.round(Math.min(housing * 18, 45) + Math.min(jobs * 12, 32) + Math.min(count(city, 'school') * 12, 12) + Math.min(count(city, 'hotel') + count(city, 'restaurant'), 4) * 3));
-  const affordability = totalCost <= 100 ? Math.max(45, Math.min(100, 100 - Math.max(0, totalCost - 75) * 2)) : 0;
-  const score = Math.max(0, Math.min(100, Math.round(roadScore * 0.22 + emergency * 0.22 + resilience * 0.28 + planning * 0.18 + affordability * 0.10)));
-  return { city, totalCost, budget, population, access, roadScore, emergency, resilience, planning, affordability, score, counts: Object.fromEntries(Object.keys(BUILDINGS).map((type) => [type, count(city, type)])) };
-}
-function simulationResult(input) {
-  const m = cityMetrics(input);
-  const flood = Math.min(100, Math.round(m.resilience * 0.68 + m.access * 0.12 + m.counts.drainage * 12 + m.counts.park * 4));
-  const ambulance = Math.min(100, Math.round(m.emergency * 0.72 + m.roadScore * 0.22 + m.counts.hospital * 8));
-  const fire = Math.min(100, Math.round(m.emergency * 0.76 + m.roadScore * 0.15 + m.counts.fire * 10));
-  const traffic = Math.min(100, Math.round(m.roadScore * 0.68 + m.counts.bus * 12 + m.access * 0.16));
-  const waste = Math.min(100, Math.round(m.resilience * 0.68 + m.counts.waste * 14 + m.counts.sensor * 4));
-  const events = [
-    { key: 'flood', name: 'Monsoon flood', icon: '🌧️', score: flood, note: flood >= 70 ? 'Drainage and water systems contained the flood.' : 'Flooding exposed gaps in drainage and green buffers.' },
-    { key: 'ambulance', name: 'Ambulance emergency', icon: '🚑', score: ambulance, note: ambulance >= 70 ? 'Emergency route reached care quickly.' : 'Response was slowed by weak service-road access.' },
-    { key: 'fire', name: 'Fire response', icon: '🔥', score: fire, note: fire >= 70 ? 'Fire services could reach the incident.' : 'Coverage or street connectivity needs improvement.' },
-    { key: 'traffic', name: 'Traffic surge', icon: '🚗', score: traffic, note: traffic >= 70 ? 'The road network absorbed peak traffic.' : 'The road network congested under peak load.' },
-    { key: 'waste', name: 'Waste surge', icon: '♻️', score: waste, note: waste >= 70 ? 'Waste collection stayed resilient.' : 'Collection capacity could not meet the surge.' }
-  ];
-  const eventAverage = Math.round(events.reduce((sum, event) => sum + event.score, 0) / events.length);
-  const finalScore = Math.round(m.score * 0.65 + eventAverage * 0.35);
-  return { ...m, score: finalScore, eventAverage, events, generatedAt: new Date().toISOString() };
-}
-function publicTeam(team) {
-  return { id: team.id, teamName: team.teamName, leaderName: team.leaderName, email: team.email, completed: Boolean(team.completed), city: team.city || { roads: [], buildings: [] }, result: team.result || null, createdAt: team.createdAt };
-}
+if(require.main===module)createApp().listen(process.env.PORT || 3001,()=>console.log('City simulator is running at http://localhost:'+(process.env.PORT || 3001)));
+module.exports={createApp};
 
-app.use(express.json({ limit: '250kb' }));
-app.use(express.static(path.join(__dirname, 'public')));
-
-app.post('/api/auth/team/register', (req, res) => {
-  const teamName = cleanText(req.body.teamName);
-  const leaderName = cleanText(req.body.leaderName);
-  const email = cleanText(req.body.email, 120).toLowerCase();
-  const password = String(req.body.password || '');
-  if (teamName.length < 2 || leaderName.length < 2 || !/^\S+@\S+\.\S+$/.test(email) || password.length < 6) return res.status(400).json({ error: 'Enter a team name, leader name, valid email, and password of at least 6 characters.' });
-  const db = readDb();
-  if (db.teams.some((team) => team.email === email || team.teamName.toLowerCase() === teamName.toLowerCase())) return res.status(409).json({ error: 'That team name or email has already been registered.' });
-  const team = { id: crypto.randomUUID(), teamName, leaderName, email, passwordHash: hashPassword(password), completed: false, city: { roads: [], buildings: [] }, result: null, createdAt: new Date().toISOString() };
-  db.teams.push(team);
-  const token = tokenFor(db, 'team', team.id);
-  res.status(201).json({ token, team: publicTeam(team) });
-});
-app.post('/api/auth/team/login', (req, res) => {
-  const email = cleanText(req.body.email, 120).toLowerCase();
-  const password = String(req.body.password || '');
-  const db = readDb();
-  const team = db.teams.find((item) => item.email === email);
-  if (!team || !checkPassword(password, team.passwordHash)) return res.status(401).json({ error: 'Incorrect email or password.' });
-  const token = tokenFor(db, 'team', team.id);
-  res.json({ token, team: publicTeam(team) });
-});
-app.post('/api/auth/admin/login', (req, res) => {
-  const email = cleanText(req.body.email, 120).toLowerCase();
-  const password = String(req.body.password || '');
-  if (email !== ADMIN_EMAIL.toLowerCase() || password !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Incorrect administrator credentials.' });
-  const db = readDb();
-  const token = tokenFor(db, 'admin', 'administrator');
-  res.json({ token, admin: { email: ADMIN_EMAIL } });
-});
-app.get('/api/team/me', auth('team'), (req, res) => {
-  const team = req.db.teams.find((item) => item.id === req.session.subjectId);
-  if (!team) return res.status(404).json({ error: 'Team no longer exists.' });
-  res.json({ team: publicTeam(team), catalog: BUILDINGS, roadCost: ROAD_COST });
-});
-app.put('/api/team/city', auth('team'), (req, res) => {
-  const team = req.db.teams.find((item) => item.id === req.session.subjectId);
-  if (!team) return res.status(404).json({ error: 'Team no longer exists.' });
-  if (team.completed) return res.status(403).json({ error: 'This team has already used its one simulation run. The city is locked.' });
-  const metrics = cityMetrics(req.body.city);
-  if (metrics.totalCost > 100) return res.status(400).json({ error: `Your plan costs ₹${metrics.totalCost} Cr, above the ₹100 Cr budget. Remove an item before saving.` });
-  team.city = metrics.city;
-  writeDb(req.db);
-  res.json({ team: publicTeam(team), metrics });
-});
-app.post('/api/team/simulate', auth('team'), (req, res) => {
-  const team = req.db.teams.find((item) => item.id === req.session.subjectId);
-  if (!team) return res.status(404).json({ error: 'Team no longer exists.' });
-  if (team.completed) return res.status(403).json({ error: 'Simulation already completed. This team has one final run only.' });
-  // Accept the current editor state as the final submission so a just-clicked asset
-  // cannot be missed while an automatic draft save is still in flight.
-  const result = simulationResult(req.body && req.body.city ? req.body.city : team.city);
-  if (result.city.roads.length < 2 || result.city.buildings.length < 5) return res.status(400).json({ error: 'Build at least 2 roads and 5 infrastructure assets before running the final simulation.' });
-  if (result.totalCost > 100) return res.status(400).json({ error: 'Your city exceeds the ₹100 Cr budget.' });
-  team.city = result.city;
-  team.result = result;
-  team.completed = true;
-  team.completedAt = new Date().toISOString();
-  writeDb(req.db);
-  res.json({ team: publicTeam(team), result });
-});
-app.get('/api/admin/scores', auth('admin'), (req, res) => {
-  const teams = req.db.teams.map((team) => ({
-    id: team.id, teamName: team.teamName, leaderName: team.leaderName, email: team.email, completed: Boolean(team.completed), score: team.result ? team.result.score : null,
-    budgetUsed: team.result ? team.result.totalCost : cityMetrics(team.city).totalCost,
-    population: team.result ? team.result.population : cityMetrics(team.city).population,
-    completedAt: team.completedAt || null,
-    eventAverage: team.result ? team.result.eventAverage : null,
-    result: team.result || null
-  })).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-  res.json({ teams, summary: { registered: teams.length, completed: teams.filter((team) => team.completed).length, averageScore: teams.filter((team) => typeof team.score === 'number').length ? Math.round(teams.filter((team) => typeof team.score === 'number').reduce((sum, team) => sum + team.score, 0) / teams.filter((team) => typeof team.score === 'number').length) : 0 } });
-});
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-
-app.listen(PORT, () => console.log(`City simulator is running at http://localhost:${PORT}`));

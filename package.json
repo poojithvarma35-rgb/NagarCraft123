@@ -5,6 +5,7 @@
   "description": "One-time playable city simulation challenge with team and admin dashboards.",
   "main": "server.js",
   "scripts": {
+    "test": "node --test tests/*.test.cjs",
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
@@ -12,3 +13,4 @@
     "express": "^4.21.2"
   }
 }
+

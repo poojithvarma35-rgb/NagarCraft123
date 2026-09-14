@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+data
+work
+outputs
+.freebuff
+.npm-cache
+
