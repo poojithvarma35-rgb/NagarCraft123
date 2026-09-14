@@ -6,22 +6,25 @@
   const VERSION = '2.0';
   const BUDGET = 100, ROAD_UNIT = 200, ACCESS = 42, MAX_ROADS = 100, MAX_BUILDINGS = 100;
   const catalog = {
-    residential:{label:'Residential area',icon:'⌂',cost:3,population:9000,color:'#e66d65'},
-    commercial:{label:'Commercial area',icon:'▥',cost:4,jobs:6000,demand:1500,color:'#f1a24b'},
-    industrial:{label:'Industrial area',icon:'⚙',cost:6,jobs:9000,demand:4500,color:'#8774d8'},
-    hospital:{label:'Hospital',icon:'✚',cost:6,capacity:18000,color:'#d94f5c'},
-    school:{label:'School / college',icon:'▣',cost:4,capacity:12000,color:'#4e8edb'},
-    fire:{label:'Fire station',icon:'♨',cost:4,capacity:22000,color:'#ef6e56'},
-    park:{label:'Park',icon:'♣',cost:2,color:'#50a96e'},
-    water:{label:'Water plant',icon:'◉',cost:7,capacity:24000,color:'#3189b9'},
-    power:{label:'Power plant',icon:'ϟ',cost:8,capacity:24000,color:'#e5b83b'},
-    bus:{label:'Bus depot',icon:'▰',cost:3,capacity:12000,color:'#e48e3f'},
-    waste:{label:'Waste facility',icon:'♻',cost:5,capacity:20000,color:'#699a5d'},
-    drainage:{label:'Drainage network',icon:'≈',cost:5,capacity:18000,color:'#498fc0'},
-    sensor:{label:'Smart sensor',icon:'◌',cost:1,color:'#6d91aa'},
-    solar:{label:'Solar field',icon:'☀',cost:4,capacity:6000,color:'#d7a831'},
-    hotel:{label:'Hotel',icon:'H',cost:3,jobs:1500,demand:1000,color:'#b3779a'},
-    restaurant:{label:'Restaurant',icon:'R',cost:2,jobs:750,demand:500,color:'#b97145'}
+    // Costs are stored in crore rupees for compatibility with the ₹100 Cr
+    // event budget. 0.01 Cr = ₹1 lakh, so each construction tool is now
+    // priced between ₹1 lakh and ₹5 lakh.
+    residential:{label:'Residential area',icon:'⌂',cost:0.02,population:9000,color:'#e66d65'},
+    commercial:{label:'Commercial area',icon:'▥',cost:0.03,jobs:6000,demand:1500,color:'#f1a24b'},
+    industrial:{label:'Industrial area',icon:'⚙',cost:0.05,jobs:9000,demand:4500,color:'#8774d8'},
+    hospital:{label:'Hospital',icon:'✚',cost:0.05,capacity:18000,color:'#d94f5c'},
+    school:{label:'School / college',icon:'▣',cost:0.03,capacity:12000,color:'#4e8edb'},
+    fire:{label:'Fire station',icon:'♨',cost:0.03,capacity:22000,color:'#ef6e56'},
+    park:{label:'Park',icon:'♣',cost:0.01,color:'#50a96e'},
+    water:{label:'Water plant',icon:'◉',cost:0.05,capacity:24000,color:'#3189b9'},
+    power:{label:'Power plant',icon:'ϟ',cost:0.05,capacity:24000,color:'#e5b83b'},
+    bus:{label:'Bus depot',icon:'▰',cost:0.02,capacity:12000,color:'#e48e3f'},
+    waste:{label:'Waste facility',icon:'♻',cost:0.04,capacity:20000,color:'#699a5d'},
+    drainage:{label:'Drainage network',icon:'≈',cost:0.04,capacity:18000,color:'#498fc0'},
+    sensor:{label:'Smart sensor',icon:'◌',cost:0.01,color:'#6d91aa'},
+    solar:{label:'Solar field',icon:'☀',cost:0.03,capacity:6000,color:'#d7a831'},
+    hotel:{label:'Hotel',icon:'H',cost:0.03,jobs:1500,demand:1000,color:'#b3779a'},
+    restaurant:{label:'Restaurant',icon:'R',cost:0.02,jobs:750,demand:500,color:'#b97145'}
   };
   const clamp = (v, lo=0, hi=1) => Math.min(hi, Math.max(lo, v));
   const round = v => Math.round(v * 100) / 100;
@@ -35,7 +38,8 @@
     const point={x:a.x+t*dx,y:a.y+t*dy};
     return {...point,t,distance:distance(p,point)};
   }
-  const roadCost = road => distance(road.start,road.end)/ROAD_UNIT;
+  // One 200 m road segment costs ₹1 lakh (0.01 Cr).
+  const roadCost = road => distance(road.start,road.end)/ROAD_UNIT*0.01;
   const cost = city => round(city.roads.reduce((s,r)=>s+roadCost(r),0)+city.buildings.reduce((s,b)=>s+(catalog[b.type]?.cost || 0),0));
   function validateCity(input) {
     const fail = message => { const e=new Error(message); e.status=400; throw e; };
@@ -211,4 +215,3 @@
   }
   return {VERSION,BUDGET,ROAD_UNIT,ACCESS,MAX_ROADS,MAX_BUILDINGS,catalog,round,distance,project,riverY,inRiver,floodRisk,cost,roadCost,validateCity,network,routing,analyze};
 });
-

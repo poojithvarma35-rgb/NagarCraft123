@@ -3,6 +3,7 @@ const $ = selector => document.querySelector(selector);
 const clone = value => JSON.parse(JSON.stringify(value));
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const number = value => Number(value || 0).toLocaleString('en-IN',{maximumFractionDigits:2});
+const lakhCost = value => '₹'+number(value*100)+' lakh';
 const storage = {
   get(key) { try {return localStorage.getItem(key);} catch {return null;} },
   set(key,value) {try {localStorage.setItem(key,value);return true;} catch {return false;} },
@@ -87,11 +88,11 @@ function chooseTool(type) {
 }
 function renderTools() {
   const list=$('#toolList');list.innerHTML='';
-  const tools=[{type:'road',label:'Draw road',icon:'━',color:'#536e6a',cost:1},...Object.entries(E.catalog).map(([type,item])=>({type,...item}))];
+  const tools=[{type:'road',label:'Draw road',icon:'━',color:'#536e6a',cost:0.01},...Object.entries(E.catalog).map(([type,item])=>({type,...item}))];
   tools.forEach(tool=> {
     const button=document.createElement('button');button.type='button';button.className='tool-button'+(state.selectedTool===tool.type?' active':'');button.disabled=!!state.team?.completed || state.submitting;button.setAttribute('aria-pressed',state.selectedTool===tool.type);
     button.style.setProperty('--tool-color',tool.color);
-    button.innerHTML='<span class="tool-symbol">'+tool.icon+'</span><span>'+escapeHtml(tool.label)+'</span><span class="tool-cost">₹'+tool.cost+' Cr'+(tool.type==='road'?'/200m':'')+'</span>';
+    button.innerHTML='<span class="tool-symbol">'+tool.icon+'</span><span>'+escapeHtml(tool.label)+'</span><span class="tool-cost">'+lakhCost(tool.cost)+(tool.type==='road'?'/200m':'')+'</span>';
     button.title=tool.capacity ? 'Capacity: '+number(tool.capacity)+' demand units via roads' : tool.type==='road'?'Roads are charged by total length. River crossings act as bridges.':tool.label;
     button.addEventListener('click',()=>chooseTool(tool.type));list.append(button);
   });
@@ -117,7 +118,7 @@ function renderPreview() {
     layer.append(svg('circle',{cx:state.roadStart.x,cy:state.roadStart.y,r:8,fill:'#c75c55',stroke:'white','stroke-width':2}));
     if(state.pointer) {
       layer.append(svg('line',{x1:state.roadStart.x,y1:state.roadStart.y,x2:state.pointer.x,y2:state.pointer.y,class:'road-preview'}));
-      $('#placementHelp').textContent='New road: '+number(E.distance(state.roadStart,state.pointer))+' m · ₹'+number(E.roadCost({start:state.roadStart,end:state.pointer}))+' Cr';
+      $('#placementHelp').textContent='New road: '+number(E.distance(state.roadStart,state.pointer))+' m · '+lakhCost(E.roadCost({start:state.roadStart,end:state.pointer}));
     }
   } else if(state.moving && state.pointer)layer.append(svg('circle',{cx:state.pointer.x,cy:state.pointer.y,r:20,class:'move-preview'}));
   if(document.activeElement===$('#cityMap'))layer.append(svg('circle',{cx:state.keyboard.x,cy:state.keyboard.y,r:7,fill:'none',stroke:'#173a3d','stroke-width':2}));
@@ -309,4 +310,3 @@ function init() {
   loadTeam().catch(()=>{});
 }
 init();
-
