@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: city-resilience-simulator
+    name: nagarcraft
     runtime: node
     plan: free
     buildCommand: npm install
