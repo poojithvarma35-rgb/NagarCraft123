@@ -2,7 +2,7 @@ services:
   - type: web
     name: city-resilience-simulator
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
@@ -11,10 +11,3 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
-      - key: DATA_DIR
-        value: /var/data
-    disk:
-      name: city-data
-      mountPath: /var/data
-      sizeGB: 1
-
